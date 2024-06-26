@@ -1,66 +1,53 @@
-# %%
-import hashlib
-import os
-import ast
-import random
-import json
-import secrets
-import numpy as np
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, padding as rsa_padding
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding as sym_padding
-from PIL import Image
+from dependencies import *
 
-# %%
 # Load Morse code dictionary
-with open("morse_dict.json", "r") as f:
+with open("config/morse_dict.json", "r") as f:
     morse_code = json.load(f)
 
 
 class Morbinography:
 
-    def __init__(self, img_path, key_pair=None):
+    def __init__(self, img_path=None, key_pair=None):
         self.__img_path = img_path
         self.__element_manifest = []
         self.image = None
+        self.image_capacity = None
         self.__seed = None
+        load_dotenv()
         self.private_key, self.public_key = self.__initialize_keys(key_pair)
-        with open("deck.json", "r") as f:
+        with open("config/deck.json", "r") as f:
             self.__deck = json.load(f)
 
     def __initialize_keys(self, key_pair):
-        if key_pair and key_pair[0] and key_pair[1]:
-            return key_pair
-        private_key, public_key = self.__generate_key_pair()
-        return private_key, public_key
+        private_key_pem = os.getenv("PRIVATE_KEY_PEM")
+        if private_key_pem:
+            private_key = serialization.load_pem_private_key(
+                base64.b64decode(private_key_pem), password=None
+            )
+        else:
+            private_key = self.__generate_key_pair()
+        return private_key, private_key.public_key()
 
     def __generate_key_pair(self):
-        try:
-            with open("private_key.pem", "rb") as key_file:
-                private_key = serialization.load_pem_private_key(
-                    key_file.read(), password=None
-                )
-        except FileNotFoundError:
-            private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-            with open("private_key.pem", "wb") as key_file:
-                key_file.write(pem)
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        pem_base64 = base64.b64encode(pem).decode("utf-8")
+        # Write the new private key to the .env file
+        set_key(".env", "PRIVATE_KEY_PEM", pem_base64)
 
-        public_key = private_key.public_key()
-        return private_key, public_key
+        return private_key
 
     def __set_seed(self, seed):
         self.__seed = (self.image.size[0] * self.image.size[1]) % sum(
             [int(c) for c in seed]
         )
 
-    def __encrypt_with_aes(self, data, secret=None):
-        secret = secret or self.__get_deck()
+    def __encrypt_with_aes(self, data, recipient_key=None):
+        secret = self.__get_deck()
         iv = os.urandom(16)
         aes_key = hashlib.sha256("".join(secret).encode()).digest()
         self.__set_seed(aes_key)
@@ -69,7 +56,7 @@ class Morbinography:
         padder = sym_padding.PKCS7(algorithms.AES.block_size).padder()
         padded_data = padder.update(data) + padder.finalize()
         encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
-        encrypted_key = self.public_key.encrypt(
+        encrypted_key = recipient_key.encrypt(
             aes_key,
             rsa_padding.OAEP(
                 mgf=rsa_padding.MGF1(algorithm=hashes.SHA256()),
@@ -109,7 +96,7 @@ class Morbinography:
     def __find_indices(self, keys_1, keys_2):
         return [keys_1.index(key) if key in keys_1 else -1 for key in keys_2]
 
-    def binary_encryption(self, msg):
+    def binary_encryption(self, msg, recipient_key=None):
         original = list(morse_code.keys())
         keys = original.copy()
         secrets.SystemRandom().shuffle(keys)
@@ -133,27 +120,43 @@ class Morbinography:
             str(encrypted_msg_length).encode() + b"|" + str(codex).encode()
         )
 
+        recipient_key = serialization.load_pem_public_key(recipient_key.encode("utf-8"))
+
         # Encrypt the concatenated data
-        encrypted_data, encrypted_key = self.__encrypt_with_aes(data_to_encrypt)
-        return encrypted_data, encrypted_key, encrypted_msg
+        encrypted_data, encrypted_key = self.__encrypt_with_aes(
+            data_to_encrypt, recipient_key
+        )
+        return encrypted_msg, (encrypted_data, encrypted_key)
 
     def __get_deck(self):
         secrets.SystemRandom().shuffle(self.__deck)
         return self.__deck
 
-    def get_img(self):
-        self.image = Image.open(self.__img_path)
+    def set_image(self, img_path):
+        self.image = Image.open(img_path)
+        self.__calculate_capacity(self.image)
+        self.__img_path = img_path
         return self.image
+
+    def __calculate_capacity(self, img):
+        bits = 8
+        layers = 3
+        width, height = img.size
+
+        total_bytes = width * height * layers
+        capacity = (total_bytes // 8) // 1.5
+
+        self.image_capacity = capacity
 
     def __embed_data(self, img, data):
         bits = "".join(format(b, "08b") for b in data[0]) + "".join(
             format(b, "08b") for b in data[1]
         )
         first_byte = format(len(bits), "012b")
-        print(bits, len(bits), sep="\n")
+        # print(bits, len(bits), sep="\n")
         bits = first_byte + bits
-        print(first_byte)
-        print(bits, len(bits), sep="\n")
+        # print(first_byte)
+        # print(bits, len(bits), sep="\n")
 
         directions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
         x, y, direction_index = 33, 33, 0
@@ -180,10 +183,10 @@ class Morbinography:
                 or (x + dx, y + dy) in self.__element_manifest
             ):
                 direction_index = (direction_index + 1) % 4
-                print(direction_index)
+                # print(direction_index)
             x += directions[direction_index][0]
             y += directions[direction_index][1]
-        print(self.__element_manifest)
+        # print(self.__element_manifest)
 
     def modify_elements(self, image, msg, data):
         if self.__seed is None:
@@ -305,32 +308,3 @@ class Morbinography:
                     msg_bits = msg_bits[6:]
 
         return decrypted_msg
-
-
-# %%
-# Example usage:
-m = Morbinography("test_1.jpg")
-img = m.get_img()
-
-# %%
-msg = "Hello, World!"
-encrypted_data, encrypted_key, encrypted_msg = m.binary_encryption(msg)
-
-# %%
-modified_img = m.modify_elements(
-    img.copy(),
-    encrypted_msg,
-    (encrypted_data, encrypted_key),
-)
-modified_img.save("modified_image.png")
-
-# %%
-# To retrieve data:
-m = Morbinography("modified_image.png")
-img = m.get_img()
-retrieved_data = m.retrieve_data(img.copy())
-decrypted_data = m.decrypt_with_aes(*retrieved_data)
-decoded_msg = m.retrieve_elements(img.copy(), decrypted_data)
-print(decoded_msg)
-
-# %%
