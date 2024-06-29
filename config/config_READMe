@@ -1,0 +1,19 @@
+**<h2>contacts.json</h2>**<br>
+<h3>Usage</h3><br>
+<h4>Adding a New Contact</h4><br>
+To add a new contact, you need to insert a new key-value pair into the JSON object, where the key is a unique identifier for the contact, and the value is the RSA public key in PEM format.
+
+Ensure the RSA public key is in PEM format, enclosed with -----BEGIN RSA PUBLIC KEY----- and -----END RSA PUBLIC KEY-----.
+Add a new entry to the JSON object with a unique identifier as the key and the PEM-formatted public key as the value.
+
+<h4>Retrieving a Public Key</h4><br>
+The contacts.json file is utilized by the MorbinographyCLI class in the main.py file, specifically within the prompt_for_recipient method. This method prompts the user to enter a recipient's public key or identifier. If an identifier is provided, the method retrieves the corresponding public key from contacts.json.
+
+<h4>Example Use Case</h4><br>
+When a user wants to encrypt a message or an image for a specific recipient, they can provide the recipient's identifier as input. The application then looks up the recipient's public key in contacts.json and uses it for encryption.
+
+<h3>Important Notes</h3><br>
+Ensure that each identifier is unique to prevent overwriting existing entries.
+The RSA public keys must be in PEM format to be correctly processed by the encryption functions.
+Handle this file with care, as it contains sensitive cryptographic material.
+For more information on how contacts.json is used within the application, refer to the prompt_for_recipient method in the main.py file.

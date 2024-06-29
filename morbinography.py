@@ -120,7 +120,7 @@ class Morbinography:
             str(encrypted_msg_length).encode() + b"|" + str(codex).encode()
         )
 
-        recipient_key = serialization.load_pem_public_key(recipient_key.encode("utf-8"))
+        recipient_key = serialization.load_pem_public_key(recipient_key.replace("\\n", "\n").encode("utf-8"))
 
         # Encrypt the concatenated data
         encrypted_data, encrypted_key = self.__encrypt_with_aes(
