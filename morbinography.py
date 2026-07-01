@@ -158,14 +158,17 @@ class Morbinography:
         codex = self.__find_indices(original, keys)
         encrypted_msg = ""
 
-        for char in msg.upper():
+        for char in msg:
             if char == " ":
                 encrypted_msg += "000000"
-            elif char in morse_code:
-                doo_dahs = morse_code[original[codex[original.index(char)]]]
-                for doo in doo_dahs:
-                    encrypted_msg += "10" if doo == "." else "1110"
-                encrypted_msg += "00"
+            else:
+                lookup_char = char.upper()
+                if lookup_char in morse_code:
+                    encrypted_msg += "1" if char.islower() else "0"
+                    doo_dahs = morse_code[original[codex[original.index(lookup_char)]]]
+                    for doo in doo_dahs:
+                        encrypted_msg += "10" if doo == "." else "1110"
+                    encrypted_msg += "00"
 
         encrypted_msg_length = len(encrypted_msg)
         data_to_encrypt = (
@@ -232,7 +235,21 @@ class Morbinography:
         capacity = ((total_bytes // 8) // 1.5) - 32
         self.image_capacity = int(capacity)
 
+    def __advance_spiral(self, img, x: int, y: int, direction_index: int, visited: set):
+        directions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+        for _ in range(4):
+            dx, dy = directions[direction_index]
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < img.width and 0 <= ny < img.height and (nx, ny) not in visited:
+                return nx, ny, direction_index
+            direction_index = (direction_index + 1) % 4
+        raise RuntimeError("No valid spiral direction found")
+
     def __embed_data(self, img, data, start_x: int, start_y: int):
+        self.__element_manifest = []
+        header_pixels = {(0, r) for r in range(32)}
+        self.__element_manifest_set = set(header_pixels)
+
         bits = "".join(format(b, "08b") for b in data[0]) + "".join(
             format(b, "08b") for b in data[1]
         )
@@ -256,17 +273,9 @@ class Morbinography:
             self.__element_manifest_set.add((x, y))
             img.putpixel((x, y), tuple(pixel))
 
-            dx, dy = directions[direction_index]
-            if (
-                x + dx < 0
-                or x + dx >= img.width
-                or y + dy < 0
-                or y + dy >= img.height
-                or (x + dx, y + dy) in self.__element_manifest_set
-            ):
-                direction_index = (direction_index + 1) % 4
-            x += directions[direction_index][0]
-            y += directions[direction_index][1]
+            x, y, direction_index = self.__advance_spiral(
+                img, x, y, direction_index, self.__element_manifest_set
+            )
 
     def modify_elements(self, image, msg, data):
         if self.__seed is None:
@@ -314,11 +323,14 @@ class Morbinography:
         return image
 
     def retrieve_data(self, image):
+        self.__element_manifest = []
+        header_pixels = {(0, r) for r in range(32)}
+        self.__element_manifest_set = set(header_pixels)
+
         # Pass 1: read coord header from fixed anchor pixels
         start_x, start_y = self.__read_coord_header(image)
 
         # Pass 2: spiral from derived coords to extract encrypted envelope
-        directions = [(1, 0), (0, 1), (-1, 0), (0, -1)]
         x, y, direction_index = start_x, start_y, 0
         bits = ""
         while len(bits) < 12 or len(bits) < int(bits[:12], 2) + 12:
@@ -327,17 +339,9 @@ class Morbinography:
                 bits += str(pixel[j] % 2)
             self.__element_manifest.append(((x, y), tuple(pixel)))
             self.__element_manifest_set.add((x, y))
-            dx, dy = directions[direction_index]
-            if (
-                x + dx < 0
-                or x + dx >= image.width
-                or y + dy < 0
-                or y + dy >= image.height
-                or (x + dx, y + dy) in self.__element_manifest_set
-            ):
-                direction_index = (direction_index + 1) % 4
-            x += directions[direction_index][0]
-            y += directions[direction_index][1]
+            x, y, direction_index = self.__advance_spiral(
+                image, x, y, direction_index, self.__element_manifest_set
+            )
 
         data_length = int(bits[:12], 2)
         bits = bits[12: 12 + data_length]
@@ -385,20 +389,28 @@ class Morbinography:
         morse_char = ""
         doo_dahs = list(morse_code.values())
         while len(msg_bits) > 0:
-            if msg_bits.startswith("10"):
-                morse_char += "."
-                msg_bits = msg_bits[2:]
-            elif msg_bits.startswith("1110"):
-                morse_char += "-"
-                msg_bits = msg_bits[4:]
-            elif msg_bits.startswith("00"):
-                if morse_char in doo_dahs:
-                    index = doo_dahs.index(morse_char)
-                    decrypted_msg += reversed_codex[index]
-                morse_char = ""
-                msg_bits = msg_bits[2:]
-                if msg_bits.startswith("000000"):
-                    decrypted_msg += " "
-                    msg_bits = msg_bits[6:]
+            if msg_bits.startswith("000000"):
+                decrypted_msg += " "
+                msg_bits = msg_bits[6:]
+                continue
+
+            case_marker = msg_bits[0]
+            msg_bits = msg_bits[1:]
+            morse_char = ""
+            while len(msg_bits) > 0:
+                if msg_bits.startswith("10"):
+                    morse_char += "."
+                    msg_bits = msg_bits[2:]
+                elif msg_bits.startswith("1110"):
+                    morse_char += "-"
+                    msg_bits = msg_bits[4:]
+                elif msg_bits.startswith("00"):
+                    if morse_char in doo_dahs:
+                        index = doo_dahs.index(morse_char)
+                        char = reversed_codex[index]
+                        decrypted_msg += char.lower() if case_marker == "1" else char
+                    morse_char = ""
+                    msg_bits = msg_bits[2:]
+                    break
 
         return decrypted_msg

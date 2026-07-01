@@ -2,6 +2,8 @@ import os
 import json
 import threading
 
+from kivy.metrics import dp
+
 os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
 
 from kivy.app import App
@@ -16,15 +18,39 @@ from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager, SlideTransition
 from kivy.uix.scrollview import ScrollView
+from kivy.effects.scroll import ScrollEffect
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
 from morbinography import Morbinography
 
-_SYSTEM_FONT = "/system/fonts/Roboto-Regular.ttf"
-_FALLBACK_FONT = os.path.join(os.getcwd(), "NotoSans-Regular.ttf")
-_font_path = _SYSTEM_FONT if os.path.exists(_SYSTEM_FONT) else _FALLBACK_FONT
-LabelBase.register(name="AppFont", fn_regular=_font_path)
+_FONT_NAME = "NotoSans-Regular"
+_FONT_PATH = os.path.join(os.getcwd(), "NotoSans-Regular.ttf")
+
+
+def _register_font(path: str) -> bool:
+    if not os.path.exists(path):
+        return False
+
+    try:
+        with open(path, "rb") as f:
+            header = f.read(4)
+
+        if header not in (b"\x00\x01\x00\x00", b"true", b"ttcf"):
+            raise ValueError("invalid font file header")
+
+        LabelBase.register(name=_FONT_NAME, fn_regular=path)
+        return True
+    except Exception as exc:
+        print(f"WARNING: unable to register font '{path}': {exc}")
+        return False
+
+
+_FONT_REGISTERED = _register_font(_FONT_PATH)
+
+
+def _font_kwargs() -> dict:
+    return {"font_name": _FONT_NAME} if _FONT_REGISTERED else {}
 
 Window.clearcolor = (0.08, 0.08, 0.10, 1)
 
@@ -40,7 +66,7 @@ ERROR = (0.85, 0.25, 0.25, 1)
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
-def _btn(text, on_press=None, bg=ACCENT, size_hint_y=None, height=52):
+def _btn(text, on_press=None, bg=ACCENT, size_hint_y=None, height=dp(52)):
     b = Button(
         text=text,
         size_hint_y=size_hint_y,
@@ -49,8 +75,8 @@ def _btn(text, on_press=None, bg=ACCENT, size_hint_y=None, height=52):
         background_color=bg,
         color=TEXT,
         font_size="16sp",
-        font_name="AppFont",
         bold=True,
+        **_font_kwargs(),
     )
     if on_press:
         bind_fn = getattr(b, "bind", None)
@@ -60,7 +86,7 @@ def _btn(text, on_press=None, bg=ACCENT, size_hint_y=None, height=52):
 
 
 def _label(text, color=TEXT, font_size="14sp", halign="left", **kw):
-    l = Label(text=text, color=color, font_size=font_size, halign=halign, font_name="AppFont", **kw)
+    l = Label(text=text, color=color, font_size=font_size, halign=halign, **_font_kwargs(), **kw)
     # Label has no wrap width by default (text_size=(None, None)), so long
     # text overflows its bounding box instead of wrapping. Bind text_size to
     # the widget's own width so halign/wrapping take effect, and keep it in
@@ -82,10 +108,28 @@ def _input(hint="", multiline=False, **kw):
     )
 
 
+def _clear_text_input_selection(*widgets):
+    for widget in widgets:
+        if widget is None:
+            continue
+        try:
+            widget.cancel_selection()
+        except Exception:
+            pass
+        try:
+            widget._hide_handles()
+        except Exception:
+            pass
+        try:
+            widget.focus = False
+        except Exception:
+            pass
+
+
 def _alert(title, message, color=TEXT):
     content = BoxLayout(orientation="vertical", padding=16, spacing=10)
     content.add_widget(_label(message, color=color, font_size="14sp", halign="center"))
-    content.add_widget(_btn("OK", size_hint_y=None, height=44,
+    content.add_widget(_btn("OK", size_hint_y=None, height=dp(44),
                             on_press=lambda *_: popup.dismiss()))
     popup = Popup(
         title=title,
@@ -153,7 +197,7 @@ class FilePicker(ModalView):
         # Show a waiting label until permissions are granted
         self._layout = BoxLayout(orientation="vertical", padding=8, spacing=8)
         self._waiting = _label("Requesting storage permission…",
-                               halign="center", size_hint_y=None, height=40)
+                               halign="center", size_hint_y=None, height=dp(40))
         self._layout.add_widget(self._waiting)
         self.add_widget(self._layout)
 
@@ -178,11 +222,11 @@ class FilePicker(ModalView):
 
         self._path_label = _label(start, font_size="11sp",
                                   color=(0.5, 0.5, 0.5, 1),
-                                  size_hint_y=None, height=20)
+                                  size_hint_y=None, height=dp(20))
         self._chooser.bind(path=lambda inst, val: setattr(self._path_label, "text", val))  # pyright: ignore[reportAttributeAccessIssue]
         self._layout.add_widget(self._path_label)
 
-        row = BoxLayout(size_hint_y=None, height=48, spacing=8)
+        row = BoxLayout(size_hint_y=None, height=dp(48), spacing=8)
         row.add_widget(_btn("Cancel", on_press=lambda *_: self.dismiss()))
         row.add_widget(_btn("Select", on_press=self._select))
         self._layout.add_widget(row)
@@ -209,11 +253,11 @@ class HomeScreen(Screen):
             Label(
                 text="Morbinography",
                 font_size="30sp",
-                font_name="AppFont",
                 bold=True,
                 color=ACCENT,
                 size_hint_y=None,
-                height=60,
+                height=dp(60),
+                **_font_kwargs(),
             )
         )
         root.add_widget(
@@ -223,21 +267,21 @@ class HomeScreen(Screen):
                 font_size="13sp",
                 halign="center",
                 size_hint_y=None,
-                height=36,
+                height=dp(36),
             )
         )
         root.add_widget(Label(size_hint_y=0.1))
         root.add_widget(
-            _btn("  Encrypt a message", on_press=self._go_encrypt, height=64, size_hint_y=None)
+            _btn("  Encrypt a message", on_press=self._go_encrypt, height=dp(64), size_hint_y=None)
         )
         root.add_widget(
             _btn("  Decrypt an image", on_press=self._go_decrypt,
-                 bg=SURFACE, height=64, size_hint_y=None)
+                 bg=SURFACE, height=dp(64), size_hint_y=None)
         )
         root.add_widget(Label(size_hint_y=0.1))
         root.add_widget(
             _btn("  Settings / My Keys", on_press=self._go_settings,
-                 bg=SURFACE, height=48, size_hint_y=None)
+                 bg=SURFACE, height=dp(48), size_hint_y=None)
         )
         root.add_widget(Label())
         self.add_widget(root)
@@ -271,19 +315,19 @@ class SettingsScreen(Screen):
         root.add_widget(Label(
             text="Settings / My Keys",
             font_size="20sp",
-            font_name="AppFont",
             bold=True,
             color=ACCENT,
             size_hint_y=None,
-            height=48,
+            height=dp(48),
             halign="center",
             valign="top",
+            **_font_kwargs(),
         ))
 
         # ── My public key ──
         root.add_widget(_label("Your public key (share this with contacts):",
                                font_size="13sp", color=(0.6, 0.6, 0.6, 1),
-                               size_hint_y=None, height=24))
+                               size_hint_y=None, height=dp(24)))
         self._pub_key_input = TextInput(
             text=morb.public_key_pem(),
             multiline=True,
@@ -293,50 +337,63 @@ class SettingsScreen(Screen):
             font_size="11sp",
             padding=[10, 8],
             size_hint_y=None,
-            height=180,
+            height=dp(180),
         )
 
         self._pub_key_input.bind(focus=self._on_pub_key_focus) # pyright: ignore[reportAttributeAccessIssue]
+        Window.bind(on_touch_down=self._on_window_touch)
         root.add_widget(self._pub_key_input)
 
         # ── Regenerate ──
         root.add_widget(_btn("Generate new key pair", on_press=self._regen_keys,
-                             bg=WARN, size_hint_y=None, height=48))
+                             bg=WARN, size_hint_y=None, height=dp(48)))
 
         # ── Import private key ──
         root.add_widget(_label("Import existing private key (PEM):",
                                font_size="13sp", color=(0.6, 0.6, 0.6, 1),
-                               size_hint_y=None, height=24))
+                               size_hint_y=None, height=dp(24)))
         root.add_widget(_label(
             "Paste your private key below to restore it on this device.",
             font_size="12sp", color=(0.5, 0.5, 0.5, 1),
-            size_hint_y=None, height=32,
+            size_hint_y=None, height=dp(32),
         ))
         self._import_input = _input(
             hint="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
             multiline=True,
             size_hint_y=None,
-            height=180,
+            height=dp(180),
         )
         root.add_widget(self._import_input)
         root.add_widget(_btn("Import private key", on_press=self._import_key,
-                             size_hint_y=None, height=48))
+                             size_hint_y=None, height=dp(48)))
 
-        root.add_widget(_btn("Back", on_press=self._go_back,
-                             bg=SURFACE, size_hint_y=None, height=44))
+        root.add_widget(_btn("⬅ Back", on_press=self._go_back,
+                             bg=SURFACE, size_hint_y=None, height=dp(44)))
 
         self.add_widget(root)
 
     def _on_pub_key_focus(self, instance, has_focus):
         if not has_focus:
-            instance.cancel_selection()
+            _clear_text_input_selection(instance)
+
+    def _on_window_touch(self, instance, touch):
+        if self._pub_key_input is not None and self._pub_key_input.focus:
+            if not self._pub_key_input.collide_point(*self._pub_key_input.to_local(*touch.pos)):
+                _clear_text_input_selection(self._pub_key_input)
+        if self._import_input is not None and self._import_input.focus:
+            if not self._import_input.collide_point(*self._import_input.to_local(*touch.pos)):
+                _clear_text_input_selection(self._import_input)
+        return False
+
+    def on_pre_leave(self, *args):
+        _clear_text_input_selection(self._pub_key_input, self._import_input)
+        return super().on_pre_leave(*args)
 
     def _go_back(self, *_):
         # Android's selection handles/highlight can survive a focus loss that
         # happens via screen transition rather than a touch, since no
         # on_touch_down ever lands outside the TextInput to clear it.
-        self._pub_key_input.cancel_selection()
-        self._pub_key_input.focus = False
+        _clear_text_input_selection(self._pub_key_input)
         self.manager.transition = SlideTransition(direction="right")
         self.manager.current = "home"
 
@@ -346,7 +403,7 @@ class SettingsScreen(Screen):
             "This will replace your current key pair.\n"
             "Anyone with your old public key cannot encrypt to you anymore, "
             "and existing encrypted messages will be unreadable.",
-            color=WARN, halign="center", size_hint_y=None, height=80,
+            color=WARN, halign="center", size_hint_y=None, height=dp(80),
         ))
 
         def _confirm(*_):
@@ -355,7 +412,7 @@ class SettingsScreen(Screen):
             self._pub_key_input.text = self._morb.public_key_pem()
             _alert("Done", "New key pair generated and saved.", color=ACCENT)
 
-        row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        row = BoxLayout(size_hint_y=None, height=dp(44), spacing=8)
         row.add_widget(_btn("Cancel", on_press=lambda *_: popup.dismiss(), bg=SURFACE))
         row.add_widget(_btn("Regenerate", on_press=_confirm, bg=ERROR))
         content.add_widget(row)
@@ -388,33 +445,33 @@ class EncryptScreen(Screen):
         self._morb = morb
         self._image_path = None
 
-        scroll = ScrollView()
+        scroll = ScrollView(effect_cls=ScrollEffect, do_scroll_x=False)
         root = BoxLayout(orientation="vertical", padding=20, spacing=14,
                          size_hint_y=None)
         root.bind(minimum_height=root.setter("height")) # pyright: ignore[reportAttributeAccessIssue]
 
         root.add_widget(_label("Step 1 — Choose a cover image", font_size="13sp",
-                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=24))
-        self._img_label = _label("No image selected", size_hint_y=None, height=28)
+                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=dp(24)))
+        self._img_label = _label("No image selected", size_hint_y=None, height=dp(28))
         root.add_widget(self._img_label)
         root.add_widget(_btn("Browse images…", on_press=self._pick_image,
-                             size_hint_y=None, height=48))
+                             size_hint_y=None, height=dp(48)))
 
-        self._warn_label = _label("", color=WARN, size_hint_y=None, height=0)
+        self._warn_label = _label("", color=WARN, size_hint_y=None, height=dp(0))
         root.add_widget(self._warn_label)
 
         root.add_widget(_label("Step 2 — Type your message", font_size="13sp",
-                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=24))
+                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=dp(24)))
         self._msg_input = _input(hint="Your secret message…", multiline=True,
-                                 size_hint_y=None, height=100)
+                                 size_hint_y=None, height=dp(100))
         root.add_widget(self._msg_input)
 
         self._capacity_label = _label("", color=(0.5, 0.5, 0.5, 1),
-                                      size_hint_y=None, height=22)
+                                      size_hint_y=None, height=dp(22))
         root.add_widget(self._capacity_label)
 
         root.add_widget(_label("Step 3 — Choose recipient", font_size="13sp",
-                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=24))
+                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=dp(24)))
 
         self._contacts = _load_contacts()
         contact_names = ["Paste key manually…"] + list(self._contacts.keys())
@@ -422,7 +479,7 @@ class EncryptScreen(Screen):
             text=contact_names[0],
             values=contact_names,
             size_hint_y=None,
-            height=44,
+            height=dp(44),
             background_normal="",
             background_color=SURFACE,
             color=TEXT,
@@ -434,24 +491,25 @@ class EncryptScreen(Screen):
             hint="Paste recipient's public key (PEM) here…",
             multiline=True,
             size_hint_y=None,
-            height=110,
+            height=dp(110),
         )
         # Long-press needs more time than ScrollView's default scroll_timeout
         # to win against the scroll gesture, or Android's paste bubble never
         # gets a chance to show.
         scroll.scroll_timeout = 400
         self._key_input.bind(focus=self._on_key_input_focus) # pyright: ignore[reportAttributeAccessIssue]
+        Window.bind(on_touch_down=self._on_window_touch)
         root.add_widget(self._key_input)
 
         root.add_widget(_btn("Encrypt & Save", on_press=self._run_encrypt,
-                             size_hint_y=None, height=56))
+                             size_hint_y=None, height=dp(56)))
 
-        self._status_label = _label("", size_hint_y=None, height=30)
+        self._status_label = _label("", size_hint_y=None, height=dp(30))
         root.add_widget(self._status_label)
 
-        row = BoxLayout(size_hint_y=None, height=44, spacing=8)
-        row.add_widget(_btn("Back", on_press=self._go_back_encrypt,
-                            bg=SURFACE, size_hint_y=None, height=44))
+        row = BoxLayout(size_hint_y=None, height=dp(44), spacing=8)
+        row.add_widget(_btn("⬅ Back", on_press=self._go_back_encrypt,
+                            bg=SURFACE, size_hint_y=None, height=dp(44)))
         root.add_widget(row)
 
         scroll.add_widget(root)
@@ -459,16 +517,25 @@ class EncryptScreen(Screen):
 
     def _on_key_input_focus(self, instance, has_focus):
         if not has_focus:
-            instance.cancel_selection()
+            _clear_text_input_selection(instance)
+
+    def _on_window_touch(self, instance, touch):
+        for widget in (self._msg_input, self._key_input):
+            if widget is not None and widget.focus:
+                if not widget.collide_point(*widget.to_local(*touch.pos)):
+                    _clear_text_input_selection(widget)
+                    break
+        return False
+
+    def on_pre_leave(self, *args):
+        _clear_text_input_selection(self._msg_input, self._key_input)
+        return super().on_pre_leave(*args)
 
     def _go_back_encrypt(self, *_):
         # Android's selection handles/highlight can survive a focus loss that
         # happens via screen transition rather than a touch, since no
         # on_touch_down ever lands outside the TextInput to clear it.
-        self._key_input.cancel_selection()
-        self._key_input.focus = False
-        self._msg_input.cancel_selection()
-        self._msg_input.focus = False
+        _clear_text_input_selection(self._key_input, self._msg_input)
         self.manager.transition = SlideTransition(direction="right")
         self.manager.current = "home"
 
@@ -488,10 +555,10 @@ class EncryptScreen(Screen):
                     "The image will be converted to PNG before encoding. "
                     "Use a PNG source for best results."
                 )
-                self._warn_label.height = 52
+                self._warn_label.height = dp(52)
             else:
                 self._warn_label.text = ""
-                self._warn_label.height = 0
+                self._warn_label.height = dp(0)
 
             self._capacity_label.text = (
                 f"This image can hold up to {self._morb.image_capacity} characters."
@@ -560,8 +627,8 @@ class EncryptScreen(Screen):
     def _prompt_save_contact(self, key):
         content = BoxLayout(orientation="vertical", padding=16, spacing=10)
         content.add_widget(_label("Save this public key as a contact?",
-                                  halign="center", size_hint_y=None, height=32))
-        name_input = _input(hint="Contact name…", size_hint_y=None, height=44)
+                                  halign="center", size_hint_y=None, height=dp(32)))
+        name_input = _input(hint="Contact name…", size_hint_y=None, height=dp(44))
         content.add_widget(name_input)
 
         def _save(*_):
@@ -574,7 +641,7 @@ class EncryptScreen(Screen):
                 )
             popup.dismiss()
 
-        row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        row = BoxLayout(size_hint_y=None, height=dp(44), spacing=8)
         row.add_widget(_btn("Skip", on_press=lambda *_: popup.dismiss(), bg=SURFACE))
         row.add_widget(_btn("Save", on_press=_save))
         content.add_widget(row)
@@ -597,23 +664,23 @@ class DecryptScreen(Screen):
         root = BoxLayout(orientation="vertical", padding=20, spacing=16)
 
         root.add_widget(_label("Choose an image to decrypt", font_size="13sp",
-                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=24))
-        self._img_label = _label("No image selected", size_hint_y=None, height=28)
+                               color=(0.6, 0.6, 0.6, 1), size_hint_y=None, height=dp(24)))
+        self._img_label = _label("No image selected", size_hint_y=None, height=dp(28))
         root.add_widget(self._img_label)
         root.add_widget(_btn("Browse images…", on_press=self._pick_image,
-                             size_hint_y=None, height=48))
+                             size_hint_y=None, height=dp(48)))
 
         root.add_widget(_btn("Decrypt", on_press=self._run_decrypt,
-                             size_hint_y=None, height=56))
+                             size_hint_y=None, height=dp(56)))
 
-        self._result_label = _label("", size_hint_y=None, height=0)
-        scroll = ScrollView(size_hint_y=0.45)
+        self._result_label = _label("", size_hint_y=None, height=dp(0))
+        scroll = ScrollView(effect_cls=ScrollEffect, do_scroll_x=False, size_hint_y=0.45)
         scroll.add_widget(self._result_label)
         root.add_widget(scroll)
 
         root.add_widget(Label())
-        root.add_widget(_btn("Back", on_press=self._go_back,
-                             bg=SURFACE, size_hint_y=None, height=44))
+        root.add_widget(_btn("⬅ Back", on_press=self._go_back,
+                             bg=SURFACE, size_hint_y=None, height=dp(44)))
 
         self.add_widget(root)
 
@@ -630,7 +697,7 @@ class DecryptScreen(Screen):
             self._image_path = path
             self._img_label.text = os.path.basename(path)
             self._result_label.text = ""
-            self._result_label.height = 0
+            self._result_label.height = dp(0)
         except ValueError as e:
             _alert("Unsupported file", str(e), color=ERROR)
 
@@ -641,7 +708,7 @@ class DecryptScreen(Screen):
 
         self._result_label.text = "Decrypting…"
         self._result_label.color = ACCENT
-        self._result_label.height = 30
+        self._result_label.height = dp(30)
 
         def _work():
             try:
@@ -660,12 +727,12 @@ class DecryptScreen(Screen):
     def _on_success(self, message):
         self._result_label.text = message
         self._result_label.color = ACCENT
-        self._result_label.height = max(80, len(message) // 2)
+        self._result_label.height = max(dp(80), len(message) // 2)
 
     def _on_error(self, msg):
         self._result_label.text = f"Could not decrypt: {msg}"
         self._result_label.color = ERROR
-        self._result_label.height = 60
+        self._result_label.height = dp(60)
 
 
 # ─────────────────────────────────────────────────────────────

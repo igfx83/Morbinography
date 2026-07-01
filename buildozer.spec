@@ -42,7 +42,7 @@ p4a.branch = v2024.01.21
 
 # ── Icons / presplash (replace with real assets) ──────────────────────────────
 # icon.filename = assets/icon.png
-# presplash.filename = assets/presplash.png
+presplash.filename = assets/presplash.png
 
 # ── Build config ──────────────────────────────────────────────────────────────
 [buildozer]

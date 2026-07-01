@@ -11,3 +11,6 @@
 /.idea/**
 run.sh
 **/*.pyc
+/outputs
+*.png
+*.pem
