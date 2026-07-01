@@ -1,0 +1,13 @@
+/.buildozer/**
+.buildozer/android/app/sitecustomize.pyc
+/.venv/**
+/.venv/
+/.vscode/
+/build-android.sh
+/.idea/**
+/bin/
+/.buildozer/
+.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/dists/morbinography/jni/SDL2_image/external/libpng/.appveyor.yml
+/.idea/**
+run.sh
+**/*.pyc

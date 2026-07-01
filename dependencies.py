@@ -7,9 +7,9 @@ import json
 import base64
 import secrets
 import numpy as np
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import rsa, padding as rsa_padding
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding as sym_padding
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.Hash import SHA256
+from Crypto.Util.Padding import pad, unpad
 from dotenv import load_dotenv, set_key
 from PIL import Image
