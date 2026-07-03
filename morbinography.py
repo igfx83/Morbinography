@@ -148,6 +148,61 @@ class Morbinography:
             print("Decryption failed:", str(e))
             raise
 
+    def sign_then_encrypt(self, data: bytes, recipient_key, signer_private_key):
+        """Sign `data` with `signer_private_key`, then encrypt the signature+data
+        with a hybrid AES envelope for `recipient_key` (sign-then-encrypt).
+
+        Returns the tuple (encrypted_data, encrypted_key) matching
+        `__encrypt_with_aes` output so it can be passed to `modify_elements`.
+        """
+        # Import locally to avoid top-level dependency issues
+        from Crypto.Signature import PKCS1_PSS
+        from Crypto.Hash import SHA256
+        # Normalize keys if PEM passed
+        if isinstance(recipient_key, (str, bytes)):
+            recipient_key = RSA.import_key(
+                recipient_key.replace("\\n", "\n").encode("utf-8")
+            )
+        if isinstance(signer_private_key, (str, bytes)):
+            signer_private_key = RSA.import_key(
+                signer_private_key.replace("\\n", "\n").encode("utf-8")
+            )
+
+        h = SHA256.new(data)
+        signer = PKCS1_PSS.new(signer_private_key)
+        signature = signer.sign(h)
+        sig_len = len(signature).to_bytes(4, "big")
+        envelope = sig_len + signature + data
+        return self.__encrypt_with_aes(envelope, recipient_key)
+
+    def decrypt_and_verify(self, encrypted_data, encrypted_key, sender_public_key):
+        """Decrypt envelope and verify signature using `sender_public_key`.
+
+        Returns (message_bytes, verified_bool).
+        """
+        from Crypto.Signature import PKCS1_PSS
+        from Crypto.Hash import SHA256
+
+        decrypted = self.decrypt_with_aes(encrypted_data, encrypted_key)
+        if len(decrypted) < 4:
+            raise ValueError("Decrypted envelope too small to contain signature length")
+        sig_len = int.from_bytes(decrypted[:4], "big")
+        signature = decrypted[4: 4 + sig_len]
+        message = decrypted[4 + sig_len :]
+
+        if isinstance(sender_public_key, (str, bytes)):
+            sender_public_key = RSA.import_key(
+                sender_public_key.replace("\\n", "\n").encode("utf-8")
+            )
+
+        verifier = PKCS1_PSS.new(sender_public_key)
+        h = SHA256.new(message)
+        try:
+            verifier.verify(h, signature)
+            return message, True
+        except (ValueError, TypeError):
+            return message, False
+
     def __find_indices(self, keys_1, keys_2):
         return [keys_1.index(key) if key in keys_1 else -1 for key in keys_2]
 
